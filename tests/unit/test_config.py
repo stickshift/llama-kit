@@ -2,7 +2,6 @@ from llama_kit.model import load_config
 
 
 def test_load_config():
-
     #
     # Givens
     #
