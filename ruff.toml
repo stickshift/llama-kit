@@ -54,12 +54,14 @@ select = [
 ignore = [
   "ARG001",  # allow unused function args
   "D100",  # allow modules without docstrings
+  "D107",  # allow __init__ without docstrings
   "D203",  # no-blank-line-before-class
   "D213",  # multi-line-summary-second-line
   "D417",  # disable google requirement for docs on every argument
   "E501",  # allow long lines
   "N803",  # allow uppercase args like X
   "N806",  # allow uppercase variables like X
+  "N812",  # allow uppercase imports like functional as F
   "PD901",  # allow df
   "PLC2701",  # allow underscore API
   "PLC2801",  # allow dunder calls
@@ -83,7 +85,7 @@ ignore = [
 
 # Define custom packages as first-party
 known-first-party = [
-  "stickshift",
+  "llama_kit",
 ]
 
 # Sort the imports by module, independent of import style.
