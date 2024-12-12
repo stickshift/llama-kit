@@ -57,7 +57,7 @@ def test_generate(device: torch.device):
     #
 
     # I split prompt into tokens
-    token_ids = tokenizer.encode(prompt)
+    token_ids = tokenizer.encode(prompt, bos=True, eos=False)
 
     # I generate next token
     token_id = next(generator(token_ids))

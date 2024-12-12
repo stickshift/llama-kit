@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
-from typing import AbstractSet, Collection, Iterator, Literal, Mapping, NamedTuple, Sequence, override
+from typing import Iterator, Mapping, NamedTuple, Sequence, override
 
-from llama_models.llama3.api import Tokenizer as LlamaTokenizer
+from llama_models.llama3.api import Tokenizer
 from llama_models.llama3.reference_impl.model import RMSNorm
 import numpy as np
 import torch
@@ -165,32 +165,26 @@ def load_parameters(config: ModelConfig, **kwargs) -> ModelParameters:
 # ------------------------------------------------------------------------------
 
 
-class Tokenizer(LlamaTokenizer):
-    """Overrides default options for encode and decode."""
-
-    @override
-    def encode(
-        self,
-        s: str,
-        *,
-        bos: bool = True,
-        eos: bool = False,
-        allowed_special: Literal["all"] | AbstractSet[str] | None = None,
-        disallowed_special: Literal["all"] | Collection[str] = (),
-    ) -> Sequence[int]:
-        return super().encode(
-            s,
-            bos=bos,
-            eos=eos,
-            allowed_special=allowed_special,
-            disallowed_special=disallowed_special,
-        )
-
-
 def load_tokenizer(config: ModelConfig) -> Tokenizer:
     """Load tokenizer from checkpoint."""
     # Load tiktoken model
     return Tokenizer(str(config.checkpoint_path / "tokenizer.model"))
+
+
+# ------------------------------------------------------------------------------
+# Embeddings
+# ------------------------------------------------------------------------------
+
+
+class LlamaEmbeddings(nn.Embedding):
+    """Llama token embeddings layer."""
+
+    def __init__(self, config: ModelConfig, device: torch.device):
+        super().__init__(
+            num_embeddings=config.vocab_size,
+            embedding_dim=config.d_model,
+            device=device,
+        )
 
 
 # ------------------------------------------------------------------------------
@@ -440,11 +434,7 @@ class LlamaModel(nn.Module):
 
         self.config = config
 
-        self.embeddings = nn.Embedding(
-            num_embeddings=config.vocab_size,
-            embedding_dim=config.d_model,
-            device=device,
-        )
+        self.embeddings = LlamaEmbeddings(config, device)
 
         self.layers = nn.ModuleList(LlamaLayer(config, device) for _ in range(config.n_layers))
 

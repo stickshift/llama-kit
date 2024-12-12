@@ -20,7 +20,7 @@ def test_tokenizer():
     #
 
     # I encode prompt
-    token_ids = tokenizer.encode(prompt)
+    token_ids = tokenizer.encode(prompt, bos=True, eos=False)
 
     #
     # Thens
