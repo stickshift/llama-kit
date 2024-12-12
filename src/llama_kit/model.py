@@ -612,7 +612,7 @@ class LlamaGenerator(nn.Module):
             top_p=top_p,
         )
 
-    def __call__(self, token_ids: Sequence[int]) -> Iterator[int]:
+    def __call__(self, token_ids: Sequence[int], **kwargs) -> Iterator[int]:
         """Generate token ids until stop token or we exceed max tokens."""
         # Prepare model
         self.model.eval()
@@ -621,9 +621,13 @@ class LlamaGenerator(nn.Module):
         # Make mutable copy of token ids
         token_ids = list(token_ids)
 
+        # Override fields with kwargs
+        max_tokens = kwargs.get("max_tokens", self.max_tokens)
+        stop_tokens = kwargs.get("stop_tokens", self.stop_tokens)
+
         with torch.no_grad():
             # Generate output until we get a stop token or we exceed max_tokens.
-            for _ in range(self.max_tokens):
+            for _ in range(max_tokens):
                 # Load token ids into a tensor
                 x = torch.tensor(token_ids, device=self.device)
 
@@ -634,7 +638,7 @@ class LlamaGenerator(nn.Module):
                 token_id = self.head(x)
 
                 # Check stopping criteria
-                if token_id in self.stop_tokens:
+                if token_id in stop_tokens:
                     break
 
                 # Yield token
@@ -649,13 +653,18 @@ class LlamaGenerator(nn.Module):
 # ------------------------------------------------------------------------------
 
 
-def generate_text(tokenizer: Tokenizer, generator: LlamaGenerator, prompt: str) -> Iterator[str]:
+def generate_text(
+    tokenizer: Tokenizer,
+    generator: LlamaGenerator,
+    prompt: str,
+    **kwargs,
+) -> Iterator[str]:
     """Generate text one token at a time."""
     # Split prompt into tokens
     token_ids = tokenizer.encode(prompt, bos=True, eos=False)
 
     # Generate new token ids
-    for token_id in generator(token_ids):
+    for token_id in generator(token_ids, **kwargs):
         # Decode token id
         token = tokenizer.decode([token_id])
 

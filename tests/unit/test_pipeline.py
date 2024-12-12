@@ -14,8 +14,8 @@ def test_generate_text(device: torch.device):
     # I created a tokenizer
     tokenizer = load_tokenizer(config)
 
-    # I created a generator w/ token sampling disabled, max tokens set to 1
-    generator = LlamaGenerator(config, device, stop_tokens=tokenizer.stop_tokens, temperature=0, max_tokens=1)
+    # I created a generator w/ token sampling disabled
+    generator = LlamaGenerator(config, device, stop_tokens=tokenizer.stop_tokens, temperature=0)
 
     # I loaded state from checkpoint
     generator.load_state_dict(load_parameters(config, map_location=device))
@@ -27,8 +27,8 @@ def test_generate_text(device: torch.device):
     # Whens
     #
 
-    # I append new tokens to prompt
-    for token in generate_text(tokenizer, generator, prompt):
+    # I append 1 new token to prompt
+    for token in generate_text(tokenizer, generator, prompt, max_tokens=1):
         prompt += token
 
     #
