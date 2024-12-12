@@ -22,6 +22,7 @@ __all__ = [
     "ModelConfig",
     "ModelParameters",
     "Tokenizer",
+    "generate_text",
     "load_config",
     "load_parameters",
     "load_tokenizer",
@@ -641,3 +642,21 @@ class LlamaGenerator(nn.Module):
 
                 # Append to end of sequence
                 token_ids.append(token_id)
+
+
+# ------------------------------------------------------------------------------
+# Text Generation Pipeline
+# ------------------------------------------------------------------------------
+
+
+def generate_text(tokenizer: Tokenizer, generator: LlamaGenerator, prompt: str) -> Iterator[str]:
+    """Generate text one token at a time."""
+    # Split prompt into tokens
+    token_ids = tokenizer.encode(prompt, bos=True, eos=False)
+
+    # Generate new token ids
+    for token_id in generator(token_ids):
+        # Decode token id
+        token = tokenizer.decode([token_id])
+
+        yield token
