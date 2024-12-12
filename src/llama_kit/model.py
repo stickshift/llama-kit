@@ -22,6 +22,7 @@ __all__ = [
     "ModelConfig",
     "ModelParameters",
     "Tokenizer",
+    "generate_text",
     "load_config",
     "load_parameters",
     "load_tokenizer",
@@ -247,11 +248,13 @@ class LlamaAttention(nn.Module):
 
         self.config = config
 
+        # Input normalization
         self.normalize = RMSNorm(
             config.d_model,
             config.rms_norm_eps,
         ).to(device)
 
+        # Queries projection
         self.w_queries = nn.Linear(
             in_features=config.d_model,
             out_features=config.n_heads * config.d_head,
@@ -259,6 +262,7 @@ class LlamaAttention(nn.Module):
             device=device,
         )
 
+        # Keys projection
         self.w_keys = nn.Linear(
             in_features=config.d_model,
             out_features=config.n_kv_heads * config.d_head,
@@ -266,6 +270,7 @@ class LlamaAttention(nn.Module):
             device=device,
         )
 
+        # Values projection
         self.w_values = nn.Linear(
             in_features=config.d_model,
             out_features=config.n_kv_heads * config.d_head,
@@ -273,6 +278,7 @@ class LlamaAttention(nn.Module):
             device=device,
         )
 
+        # Output projection
         self.w_output = nn.Linear(
             in_features=config.d_model,
             out_features=config.d_model,
@@ -316,7 +322,8 @@ class LlamaAttention(nn.Module):
         m = torch.zeros(n, n, device=device).masked_fill_(mask.logical_not(), float("-inf"))
 
         # Compute attention for all heads in parallel
-        a = F.softmax(q @ k.transpose(-2, -1) / np.sqrt(self.config.d_head) + m, dim=-1) @ v
+        scores = q @ k.transpose(-2, -1) / np.sqrt(self.config.d_head) + m
+        a = F.softmax(scores, dim=-1) @ v
 
         # Combine attention heads
         a = self._combine_heads(a)
@@ -349,11 +356,13 @@ class LlamaFFN(nn.Module):
     def __init__(self, config: ModelConfig, device: torch.device):
         super().__init__()
 
+        # Input normalization
         self.normalize = RMSNorm(
             config.d_model,
             config.rms_norm_eps,
         ).to(device)
 
+        # Input projection
         self.w_input = nn.Linear(
             in_features=config.d_model,
             out_features=config.d_ffn,
@@ -361,6 +370,7 @@ class LlamaFFN(nn.Module):
             device=device,
         )
 
+        # Gate projection
         self.w_gate = nn.Linear(
             in_features=config.d_model,
             out_features=config.d_ffn,
@@ -368,6 +378,7 @@ class LlamaFFN(nn.Module):
             device=device,
         )
 
+        # Output projection
         self.w_output = nn.Linear(
             in_features=config.d_ffn,
             out_features=config.d_model,
@@ -467,11 +478,13 @@ class LlamaHead(nn.Module):
     def __init__(self, config: ModelConfig, device: torch.device):
         super().__init__()
 
+        # Input normalization
         self.normalize = RMSNorm(
             config.d_model,
             config.rms_norm_eps,
         ).to(device)
 
+        # Output projection
         self.w_output = nn.Linear(
             in_features=config.d_model,
             out_features=config.vocab_size,
@@ -515,20 +528,18 @@ class LlamaCausalLMHead(LlamaHead):
         # Project semantic embeddings to token space
         x = super().forward(x)
 
+        # Temperature
+        # -----------
+
         # If temperature is 0, return the top token
         if self.temperature == 0:
             return torch.argmax(x, dim=-1).item()
 
-        # ---------------------------------------------------------------------
-        # Temperature
-        # ---------------------------------------------------------------------
-
         # Apply temperature
         x = x / self.temperature
 
-        # ---------------------------------------------------------------------
         # Ranking
-        # ---------------------------------------------------------------------
+        # -------
 
         # Convert logits to probabilities
         probs = F.softmax(x, dim=-1)
@@ -536,16 +547,14 @@ class LlamaCausalLMHead(LlamaHead):
         # Sort probabilities in descending order
         probs, indices = probs.sort(descending=True)
 
-        # ---------------------------------------------------------------------
         # Top K
-        # ---------------------------------------------------------------------
+        # -----
 
         # Retain top k tokens
         probs = probs[: self.top_k]
 
-        # ---------------------------------------------------------------------
         # Top P
-        # ---------------------------------------------------------------------
+        # -----
 
         # Find cutoff where cumulative probability exceeds top_p
         cumulative_mask = probs.cumsum(dim=-1) > self.top_p
@@ -555,9 +564,8 @@ class LlamaCausalLMHead(LlamaHead):
         if cumulative_mask.any():
             probs = probs[: threshold_index + 1]
 
-        # ---------------------------------------------------------------------
         # Random Selection
-        # ---------------------------------------------------------------------
+        # ----------------
 
         # Sample from remaining tokens weighted by probability
         sampled_index = torch.multinomial(probs, 1)
@@ -580,6 +588,7 @@ class LlamaGenerator(nn.Module):
         self,
         config: ModelConfig,
         device: torch.device,
+        stop_tokens: Sequence[int] | None = None,
         temperature: float | None = None,
         top_k: int | None = None,
         top_p: float | None = None,
@@ -589,7 +598,7 @@ class LlamaGenerator(nn.Module):
 
         self.device = device
 
-        self.stop_tokens = load_tokenizer(config).stop_tokens
+        self.stop_tokens = default_arg(stop_tokens, ())
 
         self.max_tokens = default_arg(max_tokens, 32)
 
@@ -603,7 +612,7 @@ class LlamaGenerator(nn.Module):
             top_p=top_p,
         )
 
-    def __call__(self, token_ids: Sequence[int]) -> Iterator[int]:
+    def __call__(self, token_ids: Sequence[int], **kwargs) -> Iterator[int]:
         """Generate token ids until stop token or we exceed max tokens."""
         # Prepare model
         self.model.eval()
@@ -612,9 +621,13 @@ class LlamaGenerator(nn.Module):
         # Make mutable copy of token ids
         token_ids = list(token_ids)
 
+        # Override fields with kwargs
+        max_tokens = kwargs.get("max_tokens", self.max_tokens)
+        stop_tokens = kwargs.get("stop_tokens", self.stop_tokens)
+
         with torch.no_grad():
             # Generate output until we get a stop token or we exceed max_tokens.
-            for _ in range(self.max_tokens):
+            for _ in range(max_tokens):
                 # Load token ids into a tensor
                 x = torch.tensor(token_ids, device=self.device)
 
@@ -625,7 +638,7 @@ class LlamaGenerator(nn.Module):
                 token_id = self.head(x)
 
                 # Check stopping criteria
-                if token_id in self.stop_tokens:
+                if token_id in stop_tokens:
                     break
 
                 # Yield token
@@ -633,3 +646,26 @@ class LlamaGenerator(nn.Module):
 
                 # Append to end of sequence
                 token_ids.append(token_id)
+
+
+# ------------------------------------------------------------------------------
+# Text Generation Pipeline
+# ------------------------------------------------------------------------------
+
+
+def generate_text(
+    tokenizer: Tokenizer,
+    generator: LlamaGenerator,
+    prompt: str,
+    **kwargs,
+) -> Iterator[str]:
+    """Generate text one token at a time."""
+    # Split prompt into tokens
+    token_ids = tokenizer.encode(prompt, bos=True, eos=False)
+
+    # Generate new token ids
+    for token_id in generator(token_ids, **kwargs):
+        # Decode token id
+        token = tokenizer.decode([token_id])
+
+        yield token
