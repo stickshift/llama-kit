@@ -44,7 +44,7 @@ def test_generate(device: torch.device):
     tokenizer = load_tokenizer(config)
 
     # I created a generator w/ token sampling disabled
-    generator = LlamaGenerator(config, device, temperature=0)
+    generator = LlamaGenerator(config, device, stop_tokens=tokenizer.stop_tokens, temperature=0)
 
     # I loaded state from checkpoint
     generator.load_state_dict(load_parameters(config, map_location=device))
