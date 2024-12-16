@@ -9,13 +9,13 @@ def test_load_state_dict(device: torch.device):
     #
 
     # I loaded config for Llama 3.2 3B checkpoint
-    config = load_config("Llama3.2-3B")
+    config = load_config("Llama3.2-3B", device=device)
 
     # I loaded parameters from checkpoint
     params = load_parameters(config, map_location=device)
 
     # I created a generator
-    generator = LlamaGenerator(config, device=device)
+    generator = LlamaGenerator(config)
 
     #
     # Whens
@@ -38,10 +38,10 @@ def test_323b_text(device: torch.device):
     #
 
     # I loaded config for Llama 3.2 3B checkpoint
-    config = load_config("Llama3.2-3B")
+    config = load_config("Llama3.2-3B", device=device)
 
     # I created a generator w/ token sampling disabled
-    generator = LlamaGenerator(config, device, temperature=0)
+    generator = LlamaGenerator(config, temperature=0)
 
     # I loaded state from checkpoint
     generator.load_state_dict(load_parameters(config, map_location=device))
@@ -70,10 +70,10 @@ def test_3211b_text(device: torch.device):
     #
 
     # I loaded config for Llama 3.2 11B checkpoint
-    config = load_config("Llama3.2-11B-Vision")
+    config = load_config("Llama3.2-11B-Vision", device=device)
 
     # I created a generator w/ token sampling disabled
-    generator = LlamaGenerator(config, device, temperature=0)
+    generator = LlamaGenerator(config, temperature=0)
 
     # I loaded state from checkpoint
     generator.load_state_dict(load_parameters(config, map_location=device))
@@ -102,10 +102,10 @@ def test_323b_instruct(device: torch.device):
     #
 
     # I loaded config for Llama 3.2 3B Instruct checkpoint
-    config = load_config("Llama3.2-3B-Instruct")
+    config = load_config("Llama3.2-3B-Instruct", device=device)
 
     # I created a generator w/ token sampling disabled
-    generator = LlamaGenerator(config, device, temperature=0)
+    generator = LlamaGenerator(config, temperature=0)
 
     # I loaded state from checkpoint
     generator.load_state_dict(load_parameters(config, map_location=device))
@@ -139,10 +139,10 @@ def test_3211b_instruct(device: torch.device):
     #
 
     # I loaded config for Llama 3.2 11B Instruct checkpoint
-    config = load_config("Llama3.2-11B-Vision-Instruct")
+    config = load_config("Llama3.2-11B-Vision-Instruct", device=device)
 
     # I created a generator w/ token sampling disabled
-    generator = LlamaGenerator(config, device, temperature=0)
+    generator = LlamaGenerator(config, temperature=0)
 
     # I loaded state from checkpoint
     generator.load_state_dict(load_parameters(config, map_location=device))
@@ -176,11 +176,11 @@ def test_max_tokens(device: torch.device):
     #
 
     # I loaded config for Llama 3.2 3B Instruct checkpoint
-    config = load_config("Llama3.2-3B-Instruct")
+    config = load_config("Llama3.2-3B-Instruct", device=device)
 
     # I created a generator w/ max tokens of 10
     max_tokens = 10
-    generator = LlamaGenerator(config, device, max_tokens=max_tokens)
+    generator = LlamaGenerator(config, max_tokens=max_tokens)
     generator.load_state_dict(load_parameters(config, map_location=device))
 
     # I create an open ended prompt
