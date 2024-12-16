@@ -32,7 +32,7 @@ def test_load_state_dict(device: torch.device):
     assert torch.equal(generator.model.embeddings.get_parameter("weight"), params["model.embeddings.weight"])
 
 
-def test_generate_32_3b_text(device: torch.device):
+def test_323b_text(device: torch.device):
     #
     # Givens
     #
@@ -64,7 +64,7 @@ def test_generate_32_3b_text(device: torch.device):
     assert token.strip() == "delta"
 
 
-def test_generate_32_11b_text(device: torch.device):
+def test_3211b_text(device: torch.device):
     #
     # Givens
     #
@@ -96,7 +96,7 @@ def test_generate_32_11b_text(device: torch.device):
     assert token.strip() == "delta"
 
 
-def test_generate_32_3b_instruct(device: torch.device):
+def test_323b_instruct(device: torch.device):
     #
     # Givens
     #
@@ -133,7 +133,7 @@ def test_generate_32_3b_instruct(device: torch.device):
     assert token.strip() == "Boston"
 
 
-def test_generate_32_11b_instruct(device: torch.device):
+def test_3211b_instruct(device: torch.device):
     #
     # Givens
     #
@@ -170,7 +170,7 @@ def test_generate_32_11b_instruct(device: torch.device):
     assert token.strip() == "Boston"
 
 
-def test_generate_max_tokens(device: torch.device):
+def test_max_tokens(device: torch.device):
     #
     # Givens
     #
@@ -178,17 +178,16 @@ def test_generate_max_tokens(device: torch.device):
     # I loaded config for Llama 3.2 3B Instruct checkpoint
     config = load_config("Llama3.2-3B-Instruct")
 
-    # I created a generator w/ token sampling disabled
-    generator = LlamaGenerator(config, device, temperature=0)
-
-    # I loaded state from checkpoint
+    # I created a generator w/ max tokens of 10
+    max_tokens = 10
+    generator = LlamaGenerator(config, device, max_tokens=max_tokens)
     generator.load_state_dict(load_parameters(config, map_location=device))
 
-    # Boston prompt
+    # I create an open ended prompt
     prompt = [
         {
             "role": "user",
-            "content": "What is the capital of Massachusetts? Answer in one word.",
+            "content": "Tell me a story about dragons.",
         }
     ]
 
@@ -196,12 +195,15 @@ def test_generate_max_tokens(device: torch.device):
     # Whens
     #
 
-    # I generate next token
-    token = next(generator(prompt))
+    # I generate response
+    tokens = []
+    for token in generator(prompt):
+        assert len(tokens) < max_tokens
+        tokens.append(token)
 
     #
     # Thens
     #
 
-    # token should be "Boston"
-    assert token.strip() == "Boston"
+    # token should have max_tokens elements
+    assert len(tokens) == max_tokens
