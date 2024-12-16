@@ -29,6 +29,7 @@ __all__ = [
     "rope_frequencies",
     "rope_rotate",
     "rope_swap",
+    "unpack_parameters",
 ]
 
 
@@ -172,6 +173,17 @@ def load_parameters(config: ModelConfig, **kwargs) -> ModelParameters:
     return params
 
 
+def unpack_parameters(params: ModelParameters, path: Sequence[str]) -> ModelParameters:
+    """Extract component parameters."""
+    # Calculate component prefix, e.g. model.layers.0.norm
+    prefix = ".".join(path) + "."
+
+    # Extract relevant keys and strip prefix
+    component_params = {k[len(prefix) :]: v for k, v in params.items() if k.startswith(prefix)}
+
+    return component_params
+
+
 # ------------------------------------------------------------------------------
 # Tokenizer
 # ------------------------------------------------------------------------------
@@ -255,8 +267,8 @@ def rope_rotate(x, r_cos, r_sin):
 
 # Updates llama-models version to accept device and dtype
 
-class RMSNorm(torch.nn.Module):
 
+class RMSNorm(torch.nn.Module):
     def __init__(self, dim: int, device: torch.device, dtype: torch.dtype, eps: float = 1e-6):
         super().__init__()
         self.eps = eps
