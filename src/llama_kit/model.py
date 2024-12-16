@@ -19,13 +19,14 @@ __all__ = [
     "LlamaHead",
     "LlamaLayer",
     "LlamaModel",
+    "Message",
     "ModelConfig",
     "ModelParameters",
     "Tokenizer",
-    "generate_text",
     "load_config",
     "load_parameters",
     "load_tokenizer",
+    "render_messages",
     "rope_frequencies",
     "rope_rotate",
     "rope_swap",
@@ -581,6 +582,34 @@ class LlamaCausalLMHead(LlamaHead):
 # ------------------------------------------------------------------------------
 
 
+class Message(NamedTuple):
+    """Structured message for instruct model."""
+
+    role: str
+
+    content: str
+
+
+def render_messages(messages: Sequence[Message]) -> str:
+    """Render messages with special instruct tokens."""
+    prompt = ""
+
+    for data in messages:
+        message = data
+
+        # Convert dicts to Messages
+        if isinstance(message, dict):
+            message = Message(**message)
+
+        prompt += f"<|start_header_id|>{message.role}<|end_header_id|>\n\n"
+        prompt += message.content
+        prompt += "<|eot_id|>"
+
+    prompt += "<|start_header_id|>assistant<|end_header_id|>\n\n"
+
+    return prompt
+
+
 class LlamaGenerator(nn.Module):
     """Llama text generator."""
 
@@ -588,7 +617,6 @@ class LlamaGenerator(nn.Module):
         self,
         config: ModelConfig,
         device: torch.device,
-        stop_tokens: Sequence[int] | None = None,
         temperature: float | None = None,
         top_k: int | None = None,
         top_p: float | None = None,
@@ -598,7 +626,7 @@ class LlamaGenerator(nn.Module):
 
         self.device = device
 
-        self.stop_tokens = default_arg(stop_tokens, ())
+        self.tokenizer = load_tokenizer(config)
 
         self.max_tokens = default_arg(max_tokens, 32)
 
@@ -612,18 +640,21 @@ class LlamaGenerator(nn.Module):
             top_p=top_p,
         )
 
-    def __call__(self, token_ids: Sequence[int], **kwargs) -> Iterator[int]:
+    def __call__(self, prompt: str | Sequence[Message], **kwargs) -> Iterator[str]:
         """Generate token ids until stop token or we exceed max tokens."""
         # Prepare model
         self.model.eval()
         self.head.eval()
 
-        # Make mutable copy of token ids
-        token_ids = list(token_ids)
+        # Encode messages
+        if not isinstance(prompt, str):
+            prompt = render_messages(prompt)
+
+        # Tokenize
+        token_ids = self.tokenizer.encode(prompt, bos=True, eos=False, allowed_special="all")
 
         # Override fields with kwargs
         max_tokens = kwargs.get("max_tokens", self.max_tokens)
-        stop_tokens = kwargs.get("stop_tokens", self.stop_tokens)
 
         with torch.no_grad():
             # Generate output until we get a stop token or we exceed max_tokens.
@@ -638,34 +669,11 @@ class LlamaGenerator(nn.Module):
                 token_id = self.head(x)
 
                 # Check stopping criteria
-                if token_id in stop_tokens:
+                if token_id in self.tokenizer.stop_tokens:
                     break
 
                 # Yield token
-                yield token_id
+                yield self.tokenizer.decode([token_id])
 
                 # Append to end of sequence
                 token_ids.append(token_id)
-
-
-# ------------------------------------------------------------------------------
-# Text Generation Pipeline
-# ------------------------------------------------------------------------------
-
-
-def generate_text(
-    tokenizer: Tokenizer,
-    generator: LlamaGenerator,
-    prompt: str,
-    **kwargs,
-) -> Iterator[str]:
-    """Generate text one token at a time."""
-    # Split prompt into tokens
-    token_ids = tokenizer.encode(prompt, bos=True, eos=False)
-
-    # Generate new token ids
-    for token_id in generator(token_ids, **kwargs):
-        # Decode token id
-        token = tokenizer.decode([token_id])
-
-        yield token
