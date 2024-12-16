@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import Iterator, Mapping, NamedTuple, Sequence, override
 
 from llama_models.llama3.api import Tokenizer
-from llama_models.llama3.reference_impl.model import RMSNorm
 import numpy as np
 import torch
 from torch import Tensor, nn
@@ -61,6 +60,8 @@ class ModelConfig(NamedTuple):
 
     rope_theta: float
 
+    dtype: torch.dtype
+
 
 def load_config(checkpoint_name: str, **kwargs) -> ModelConfig:
     """Load Llama3 config from checkpoint params.json."""
@@ -90,6 +91,7 @@ def load_config(checkpoint_name: str, **kwargs) -> ModelConfig:
         "n_kv_heads": hparams["n_kv_heads"],
         "rope_theta": hparams["rope_theta"],
         "d_ffn": d_ffn,
+        "dtype": torch.bfloat16,
     }
 
     # Override with kwargs
@@ -120,6 +122,9 @@ def load_parameters(config: ModelConfig, **kwargs) -> ModelParameters:
 
     # Inject prefix for multimodal checkpoints
     prefix = "text_model." if "text_model.tok_embeddings.weight" in checkpoint_params else ""
+
+    # Validate dtype
+    assert checkpoint_params[f"{prefix}tok_embeddings.weight"].dtype == config.dtype
 
     # Embeddings
     params |= {
@@ -191,6 +196,7 @@ class LlamaEmbeddings(nn.Embedding):
             num_embeddings=config.vocab_size,
             embedding_dim=config.d_model,
             device=device,
+            dtype=config.dtype,
         )
 
 
@@ -204,9 +210,10 @@ def rope_frequencies(config: ModelConfig, device: torch.device, n: int):
     # Hyperparameters
     base = config.rope_theta
     d = config.d_head
+    dtype = config.dtype
 
     # Calculate thetas
-    i = torch.arange(d // 2, device=device)
+    i = torch.arange(d // 2, dtype=dtype).to(device)
     thetas = base ** (-2 * i / d)
 
     # Duplicate each theta, e.g. [theta_0, theta_1] -> [theta_0, theta_0, theta_1, theta_1]
@@ -246,6 +253,22 @@ def rope_rotate(x, r_cos, r_sin):
     return (x * r_cos) + (rope_swap(x) * r_sin)
 
 
+# Updates llama-models version to accept device and dtype
+
+class RMSNorm(torch.nn.Module):
+
+    def __init__(self, dim: int, device: torch.device, dtype: torch.dtype, eps: float = 1e-6):
+        super().__init__()
+        self.eps = eps
+        self.weight = nn.Parameter(torch.ones(dim, device=device, dtype=dtype))
+
+    def _norm(self, x):
+        return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+
+    def forward(self, x):
+        return self._norm(x) * self.weight
+
+
 class LlamaAttention(nn.Module):
     """Llama attention layer."""
 
@@ -256,9 +279,11 @@ class LlamaAttention(nn.Module):
 
         # Input normalization
         self.normalize = RMSNorm(
-            config.d_model,
-            config.rms_norm_eps,
-        ).to(device)
+            dim=config.d_model,
+            device=device,
+            dtype=config.dtype,
+            eps=config.rms_norm_eps,
+        )
 
         # Queries projection
         self.w_queries = nn.Linear(
@@ -266,6 +291,7 @@ class LlamaAttention(nn.Module):
             out_features=config.n_heads * config.d_head,
             bias=False,
             device=device,
+            dtype=config.dtype,
         )
 
         # Keys projection
@@ -274,6 +300,7 @@ class LlamaAttention(nn.Module):
             out_features=config.n_kv_heads * config.d_head,
             bias=False,
             device=device,
+            dtype=config.dtype,
         )
 
         # Values projection
@@ -282,6 +309,7 @@ class LlamaAttention(nn.Module):
             out_features=config.n_kv_heads * config.d_head,
             bias=False,
             device=device,
+            dtype=config.dtype,
         )
 
         # Output projection
@@ -290,12 +318,14 @@ class LlamaAttention(nn.Module):
             out_features=config.d_model,
             bias=False,
             device=device,
+            dtype=config.dtype,
         )
 
     @override
     def forward(self, x: Tensor, r_cos: Tensor, r_sin: Tensor) -> Tensor:
-        # Match input device
+        # Match input
         device = x.device
+        dtype = x.dtype
 
         # Save residuals
         residual = x
@@ -324,8 +354,8 @@ class LlamaAttention(nn.Module):
 
         # Compute masked attention bias M
         n = len(x)
-        mask = torch.ones(n, n, dtype=torch.bool, device=device).tril(diagonal=0)
-        m = torch.zeros(n, n, device=device).masked_fill_(mask.logical_not(), float("-inf"))
+        mask = torch.ones(n, n, device=device, dtype=torch.bool).tril(diagonal=0)
+        m = torch.zeros(n, n, device=device, dtype=dtype).masked_fill_(mask.logical_not(), float("-inf"))
 
         # Compute attention for all heads in parallel
         scores = q @ k.transpose(-2, -1) / np.sqrt(self.config.d_head) + m
@@ -364,9 +394,11 @@ class LlamaFFN(nn.Module):
 
         # Input normalization
         self.normalize = RMSNorm(
-            config.d_model,
-            config.rms_norm_eps,
-        ).to(device)
+            dim=config.d_model,
+            device=device,
+            dtype=config.dtype,
+            eps=config.rms_norm_eps,
+        )
 
         # Input projection
         self.w_input = nn.Linear(
@@ -374,6 +406,7 @@ class LlamaFFN(nn.Module):
             out_features=config.d_ffn,
             bias=False,
             device=device,
+            dtype=config.dtype,
         )
 
         # Gate projection
@@ -382,6 +415,7 @@ class LlamaFFN(nn.Module):
             out_features=config.d_ffn,
             bias=False,
             device=device,
+            dtype=config.dtype,
         )
 
         # Output projection
@@ -390,6 +424,7 @@ class LlamaFFN(nn.Module):
             out_features=config.d_model,
             bias=False,
             device=device,
+            dtype=config.dtype,
         )
 
     @override
@@ -486,9 +521,11 @@ class LlamaHead(nn.Module):
 
         # Input normalization
         self.normalize = RMSNorm(
-            config.d_model,
-            config.rms_norm_eps,
-        ).to(device)
+            dim=config.d_model,
+            device=device,
+            dtype=config.dtype,
+            eps=config.rms_norm_eps,
+        )
 
         # Output projection
         self.w_output = nn.Linear(
@@ -496,6 +533,7 @@ class LlamaHead(nn.Module):
             out_features=config.vocab_size,
             bias=False,
             device=device,
+            dtype=config.dtype,
         )
 
     @override
@@ -631,6 +669,8 @@ class LlamaGenerator(nn.Module):
 
         self.device = device
 
+        self.dtype = config.dtype
+
         self.tokenizer = load_tokenizer(config)
 
         self.max_tokens = default_arg(max_tokens, 32)
@@ -665,7 +705,7 @@ class LlamaGenerator(nn.Module):
             # Generate output until we get a stop token or we exceed max_tokens.
             for _ in range(max_tokens):
                 # Load token ids into a tensor
-                x = torch.tensor(token_ids, device=self.device)
+                x = torch.tensor(token_ids, device=self.device, dtype=torch.int64)
 
                 # Transform token_ids into semantic embeddings
                 x = self.model(x)
