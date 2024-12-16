@@ -26,7 +26,7 @@ __all__ = [
     "load_config",
     "load_parameters",
     "load_tokenizer",
-    "render_messages",
+    "render_prompt",
     "rope_frequencies",
     "rope_rotate",
     "rope_swap",
@@ -118,45 +118,50 @@ def load_parameters(config: ModelConfig, **kwargs) -> ModelParameters:
     # Remap Meta's parameter names
     params = {}
 
+    # Inject prefix for multimodal checkpoints
+    prefix = "text_model." if "text_model.tok_embeddings.weight" in checkpoint_params else ""
+
     # Embeddings
     params |= {
-        "model.embeddings.weight": checkpoint_params["tok_embeddings.weight"],
+        "model.embeddings.weight": checkpoint_params[f"{prefix}tok_embeddings.weight"],
     }
 
     # Layers
     for layer_id in range(config.n_layers):
         params |= {
             f"model.layers.{layer_id}.attention.normalize.weight": checkpoint_params[
-                f"layers.{layer_id}.attention_norm.weight"
+                f"{prefix}layers.{layer_id}.attention_norm.weight"
             ],
             f"model.layers.{layer_id}.attention.w_queries.weight": checkpoint_params[
-                f"layers.{layer_id}.attention.wq.weight"
+                f"{prefix}layers.{layer_id}.attention.wq.weight"
             ],
             f"model.layers.{layer_id}.attention.w_keys.weight": checkpoint_params[
-                f"layers.{layer_id}.attention.wk.weight"
+                f"{prefix}layers.{layer_id}.attention.wk.weight"
             ],
             f"model.layers.{layer_id}.attention.w_values.weight": checkpoint_params[
-                f"layers.{layer_id}.attention.wv.weight"
+                f"{prefix}layers.{layer_id}.attention.wv.weight"
             ],
             f"model.layers.{layer_id}.attention.w_output.weight": checkpoint_params[
-                f"layers.{layer_id}.attention.wo.weight"
+                f"{prefix}layers.{layer_id}.attention.wo.weight"
             ],
-            f"model.layers.{layer_id}.ffn.normalize.weight": checkpoint_params[f"layers.{layer_id}.ffn_norm.weight"],
+            f"model.layers.{layer_id}.ffn.normalize.weight": checkpoint_params[
+                f"{prefix}layers.{layer_id}.ffn_norm.weight"
+            ],
             f"model.layers.{layer_id}.ffn.w_input.weight": checkpoint_params[
-                f"layers.{layer_id}.feed_forward.w3.weight"
+                f"{prefix}layers.{layer_id}.feed_forward.w3.weight"
             ],
             f"model.layers.{layer_id}.ffn.w_gate.weight": checkpoint_params[
-                f"layers.{layer_id}.feed_forward.w1.weight"
+                f"{prefix}layers.{layer_id}.feed_forward.w1.weight"
             ],
             f"model.layers.{layer_id}.ffn.w_output.weight": checkpoint_params[
-                f"layers.{layer_id}.feed_forward.w2.weight"
+                f"{prefix}layers.{layer_id}.feed_forward.w2.weight"
             ],
         }
 
     # Head
     params |= {
-        "head.normalize.weight": checkpoint_params["norm.weight"],
-        "head.w_output.weight": checkpoint_params["output.weight"],
+        "head.normalize.weight": checkpoint_params[f"{prefix}norm.weight"],
+        "head.w_output.weight": checkpoint_params[f"{prefix}output.weight"],
     }
 
     return params
@@ -590,7 +595,7 @@ class Message(NamedTuple):
     content: str
 
 
-def render_messages(messages: Sequence[Message]) -> str:
+def render_prompt(messages: Sequence[Message]) -> str:
     """Render messages with special instruct tokens."""
     prompt = ""
 
@@ -648,7 +653,7 @@ class LlamaGenerator(nn.Module):
 
         # Encode messages
         if not isinstance(prompt, str):
-            prompt = render_messages(prompt)
+            prompt = render_prompt(prompt)
 
         # Tokenize
         token_ids = self.tokenizer.encode(prompt, bos=True, eos=False, allowed_special="all")

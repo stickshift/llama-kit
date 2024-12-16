@@ -32,7 +32,7 @@ def test_load_state_dict(device: torch.device):
     assert torch.equal(generator.model.embeddings.get_parameter("weight"), params["model.embeddings.weight"])
 
 
-def test_generate_text_model(device: torch.device):
+def test_generate_32_3b_text(device: torch.device):
     #
     # Givens
     #
@@ -64,7 +64,113 @@ def test_generate_text_model(device: torch.device):
     assert token.strip() == "delta"
 
 
-def test_generate_instruct_model(device: torch.device):
+def test_generate_32_11b_text(device: torch.device):
+    #
+    # Givens
+    #
+
+    # I loaded config for Llama 3.2 11B checkpoint
+    config = load_config("Llama3.2-11B-Vision")
+
+    # I created a generator w/ token sampling disabled
+    generator = LlamaGenerator(config, device, temperature=0)
+
+    # I loaded state from checkpoint
+    generator.load_state_dict(load_parameters(config, map_location=device))
+
+    # Greek prompt
+    prompt = "alpha beta gamma"
+
+    #
+    # Whens
+    #
+
+    # I generate next token
+    token = next(generator(prompt))
+
+    #
+    # Thens
+    #
+
+    # token should be "delta"
+    assert token.strip() == "delta"
+
+
+def test_generate_32_3b_instruct(device: torch.device):
+    #
+    # Givens
+    #
+
+    # I loaded config for Llama 3.2 3B Instruct checkpoint
+    config = load_config("Llama3.2-3B-Instruct")
+
+    # I created a generator w/ token sampling disabled
+    generator = LlamaGenerator(config, device, temperature=0)
+
+    # I loaded state from checkpoint
+    generator.load_state_dict(load_parameters(config, map_location=device))
+
+    # Boston prompt
+    prompt = [
+        {
+            "role": "user",
+            "content": "What is the capital of Massachusetts? Answer in one word.",
+        }
+    ]
+
+    #
+    # Whens
+    #
+
+    # I generate next token
+    token = next(generator(prompt))
+
+    #
+    # Thens
+    #
+
+    # token should be "Boston"
+    assert token.strip() == "Boston"
+
+
+def test_generate_32_11b_instruct(device: torch.device):
+    #
+    # Givens
+    #
+
+    # I loaded config for Llama 3.2 11B Instruct checkpoint
+    config = load_config("Llama3.2-11B-Vision-Instruct")
+
+    # I created a generator w/ token sampling disabled
+    generator = LlamaGenerator(config, device, temperature=0)
+
+    # I loaded state from checkpoint
+    generator.load_state_dict(load_parameters(config, map_location=device))
+
+    # Boston prompt
+    prompt = [
+        {
+            "role": "user",
+            "content": "What is the capital of Massachusetts? Answer in one word.",
+        }
+    ]
+
+    #
+    # Whens
+    #
+
+    # I generate next token
+    token = next(generator(prompt))
+
+    #
+    # Thens
+    #
+
+    # token should be "Boston"
+    assert token.strip() == "Boston"
+
+
+def test_generate_max_tokens(device: torch.device):
     #
     # Givens
     #
