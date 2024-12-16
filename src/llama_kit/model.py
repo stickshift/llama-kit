@@ -8,7 +8,7 @@ import torch
 from torch import Tensor, nn
 from torch.nn import functional as F
 
-from .tools import default_arg
+from .tools import default_arg, torch_device
 
 __all__ = [
     "LlamaAttention",
@@ -61,6 +61,8 @@ class ModelConfig(NamedTuple):
 
     rope_theta: float
 
+    device: torch.device
+
     dtype: torch.dtype
 
 
@@ -92,6 +94,7 @@ def load_config(checkpoint_name: str, **kwargs) -> ModelConfig:
         "n_kv_heads": hparams["n_kv_heads"],
         "rope_theta": hparams["rope_theta"],
         "d_ffn": d_ffn,
+        "device": torch_device(),
         "dtype": torch.bfloat16,
     }
 
@@ -203,11 +206,11 @@ def load_tokenizer(config: ModelConfig) -> Tokenizer:
 class LlamaEmbeddings(nn.Embedding):
     """Llama token embeddings layer."""
 
-    def __init__(self, config: ModelConfig, device: torch.device):
+    def __init__(self, config: ModelConfig):
         super().__init__(
             num_embeddings=config.vocab_size,
             embedding_dim=config.d_model,
-            device=device,
+            device=config.device,
             dtype=config.dtype,
         )
 
@@ -217,11 +220,12 @@ class LlamaEmbeddings(nn.Embedding):
 # ------------------------------------------------------------------------------
 
 
-def rope_frequencies(config: ModelConfig, device: torch.device, n: int):
+def rope_frequencies(config: ModelConfig, n: int):
     """Compute RoPE cos and sin rotation matrices."""
     # Hyperparameters
     base = config.rope_theta
     d = config.d_head
+    device = config.device
     dtype = config.dtype
 
     # Calculate thetas
@@ -268,11 +272,12 @@ def rope_rotate(x, r_cos, r_sin):
 # Updates llama-models version to accept device and dtype
 
 
-class RMSNorm(torch.nn.Module):
-    def __init__(self, dim: int, device: torch.device, dtype: torch.dtype, eps: float = 1e-6):
+class LlamaNorm(torch.nn.Module):
+    def __init__(self, config: ModelConfig):
         super().__init__()
-        self.eps = eps
-        self.weight = nn.Parameter(torch.ones(dim, device=device, dtype=dtype))
+        
+        self.eps = config.rms_norm_eps
+        self.weight = nn.Parameter(torch.ones(config.d_model, device=config.device, dtype=config.dtype,))
 
     def _norm(self, x):
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
@@ -493,14 +498,14 @@ class LlamaLayer(nn.Module):
 class LlamaModel(nn.Module):
     """Combines embeddings and layers in reusable module."""
 
-    def __init__(self, config: ModelConfig, device: torch.device):
+    def __init__(self, config: ModelConfig):
         super().__init__()
 
         self.config = config
 
-        self.embeddings = LlamaEmbeddings(config, device)
+        self.embeddings = LlamaEmbeddings(config)
 
-        self.layers = nn.ModuleList(LlamaLayer(config, device) for _ in range(config.n_layers))
+        self.layers = nn.ModuleList(LlamaLayer(config) for _ in range(config.n_layers))
 
     @override
     def forward(self, token_ids: Tensor) -> Tensor:

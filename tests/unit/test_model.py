@@ -9,10 +9,10 @@ def test_transform(device: torch.device):
     #
 
     # I loaded config for Llama 3.2 3B checkpoint
-    config = load_config("Llama3.2-3B")
+    config = load_config("Llama3.2-3B", device=device)
 
     # I created a model
-    model = LlamaModel(config, device)
+    model = LlamaModel(config)
 
     # I loaded model parameters
     params = load_parameters(config, map_location=device)
