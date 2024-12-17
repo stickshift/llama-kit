@@ -1,7 +1,8 @@
 from pathlib import Path
 from textwrap import dedent
 
-from llama_kit.benchmarks.mmlu import evaluate_model, load_dataset, select_question, generate_prompt, generate_answers, OPTIONS
+from llama_kit.model import load_config, load_parameters
+from llama_kit.benchmarks.mmlu import evaluate_generator, load_dataset, select_question, generate_prompt, OPTIONS, MMLUGenerator
 
 
 def test_load_dataset(mmlu_dataset_path: Path):
@@ -11,28 +12,28 @@ def test_load_dataset(mmlu_dataset_path: Path):
     #
 
     # I load dataset
-    questions, examples, categories = load_dataset(mmlu_dataset_path)
+    dataset = load_dataset(mmlu_dataset_path)
 
     #
     # Thens
     #
 
     # There should 14,042 questions
-    assert len(questions) == 14042
+    assert len(dataset.questions) == 14042
 
     # There should 57 categories
-    assert len(categories) == 57
+    assert len(dataset.categories) == 57
 
     # There should 5 examples per category
-    for category in categories:
-        assert len([e for e in examples if e.category == category]) == 5
+    for category in dataset.categories:
+        assert len([e for e in dataset.examples if e.category == category]) == 5
 
     #
     # Whens
     #
 
     # I query question by qid
-    question0 = select_question(questions, qid=120)
+    question0 = select_question(dataset.questions, qid=120)
 
     #
     # Thens
@@ -45,7 +46,7 @@ def test_load_dataset(mmlu_dataset_path: Path):
     #
 
     # I query question by question
-    question1 = select_question(questions, question=question0.question)
+    question1 = select_question(dataset.questions, question=question0.question)
 
     #
     # Thens
@@ -62,10 +63,10 @@ def test_prompt_zero_shot(mmlu_dataset_path: Path):
     #
 
     # I loaded dataset
-    questions, examples, categories = load_dataset(mmlu_dataset_path)
+    dataset = load_dataset(mmlu_dataset_path)
 
     # I looked up question 7779
-    question = select_question(questions, qid=7779)
+    question = select_question(dataset.questions, qid=7779)
 
     #
     # Whens
@@ -92,17 +93,22 @@ def test_generate_answers(mmlu_dataset_path: Path):
     #
 
     # I loaded dataset
-    questions, examples, _ = load_dataset(mmlu_dataset_path)
+    dataset = load_dataset(mmlu_dataset_path)
 
     # I looked up question 7779
-    question = select_question(questions, qid=7779)
+    question = select_question(dataset.questions, qid=7779)
+    
+    # I initialized generator
+    config = load_config("Llama3.2-3B-Instruct")
+    generator = MMLUGenerator(config)
+    generator.load_state_dict(load_parameters(config))
 
     #
     # Whens
     #
 
-    # I generate answer to question using 3.2 3B pretrained model
-    answer = next(generate_answers("Llama3.2-3B", questions=[question], n_shots=0, examples=examples))
+    # I generate answer to question
+    answer = next(generator([question], n_shots=0, examples=dataset.examples))
 
     #
     # Thens
@@ -117,41 +123,32 @@ def test_generate_answers(mmlu_dataset_path: Path):
 
 
 def test_evaluate(mmlu_dataset_path: Path):
-    
+        
     #
     # Givens
     #
 
     # I loaded dataset
-    questions, examples, _ = load_dataset(mmlu_dataset_path)
+    dataset = load_dataset(mmlu_dataset_path)
 
     # I looked up question 7779
-    question = select_question(questions, qid=7779)
+    question = select_question(dataset.questions, qid=7779)
+    
+    # I initialized generator
+    config = load_config("Llama3.2-3B-Instruct")
+    generator = MMLUGenerator(config)
+    generator.load_state_dict(load_parameters(config))
 
     #
     # Whens
     #
 
-    # I evaluate 3.2 3B pretrained model
-    score = evaluate_model("Llama3.2-3B", questions=[question], n_shots=5, examples=examples)
+    # I evaluate generator
+    score = evaluate_generator(generator, questions=[question], n_shots=0, examples=dataset.examples)
 
     #
     # Thens
     #
 
     # score should be populated
-    assert 0.0 <= score <= 1.0
-
-    #
-    # Whens
-    #
-
-    # I evaluate 3.2 3B instruct model
-    score = evaluate_model("Llama3.2-3B-Instruct", questions=[question], n_shots=5, examples=examples)
-
-    #
-    # Thens
-    #
-
-    # score should be populated
-    assert 0.0 <= score <= 1.0
+    assert 0.0 <= score <= 100.0

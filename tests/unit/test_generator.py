@@ -12,7 +12,7 @@ def test_load_state_dict(device: torch.device):
     config = load_config("Llama3.2-3B", device=device)
 
     # I loaded parameters from checkpoint
-    params = load_parameters(config, map_location=device)
+    params = load_parameters(config)
 
     # I created a generator
     generator = LlamaGenerator(config)
@@ -44,7 +44,7 @@ def test_323b_text(device: torch.device):
     generator = LlamaGenerator(config, temperature=0)
 
     # I loaded state from checkpoint
-    generator.load_state_dict(load_parameters(config, map_location=device))
+    generator.load_state_dict(load_parameters(config))
 
     # Greek prompt
     prompt = "alpha beta gamma"
@@ -76,7 +76,7 @@ def test_3211b_text(device: torch.device):
     generator = LlamaGenerator(config, temperature=0)
 
     # I loaded state from checkpoint
-    generator.load_state_dict(load_parameters(config, map_location=device))
+    generator.load_state_dict(load_parameters(config))
 
     # Greek prompt
     prompt = "alpha beta gamma"
@@ -108,7 +108,7 @@ def test_323b_instruct(device: torch.device):
     generator = LlamaGenerator(config, temperature=0)
 
     # I loaded state from checkpoint
-    generator.load_state_dict(load_parameters(config, map_location=device))
+    generator.load_state_dict(load_parameters(config))
 
     # Boston prompt
     prompt = [
@@ -145,7 +145,7 @@ def test_3211b_instruct(device: torch.device):
     generator = LlamaGenerator(config, temperature=0)
 
     # I loaded state from checkpoint
-    generator.load_state_dict(load_parameters(config, map_location=device))
+    generator.load_state_dict(load_parameters(config))
 
     # Boston prompt
     prompt = [
@@ -181,7 +181,7 @@ def test_max_tokens(device: torch.device):
     # I created a generator w/ max tokens of 10
     max_tokens = 10
     generator = LlamaGenerator(config, max_tokens=max_tokens)
-    generator.load_state_dict(load_parameters(config, map_location=device))
+    generator.load_state_dict(load_parameters(config))
 
     # I create an open ended prompt
     prompt = [

@@ -16,7 +16,7 @@ def test_load_parameters(device: torch.device):
     #
 
     # I load parameters from checkpoint
-    params = load_parameters(config, map_location=device)
+    params = load_parameters(config)
 
     #
     # Thens

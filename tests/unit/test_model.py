@@ -15,7 +15,7 @@ def test_transform(device: torch.device):
     model = LlamaModel(config)
 
     # I loaded model parameters
-    params = load_parameters(config, map_location=device)
+    params = load_parameters(config)
     model.load_state_dict(unpack_parameters(params, ["model"]))
 
     # Greek prompt

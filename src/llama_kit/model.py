@@ -122,13 +122,13 @@ ModelParameters = Mapping[str, Tensor]
 """Maps parameter names to weights."""
 
 
-def load_parameters(config: ModelConfig, **kwargs) -> ModelParameters:
+def load_parameters(config: ModelConfig) -> ModelParameters:
     """Load model state from checkpoint."""
     # Load state from checkpoint
     checkpoint_params = torch.load(
         config.checkpoint_path / "consolidated.00.pth",
         weights_only=True,
-        **kwargs,
+        map_location=config.device,
     )
 
     # Remap Meta's parameter names

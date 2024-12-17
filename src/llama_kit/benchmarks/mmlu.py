@@ -2,20 +2,25 @@
 
 from collections.abc import Sequence, Set
 import csv
+import logging
 from pathlib import Path
+from random import sample
 import shutil
 import tarfile
 import tempfile
 from textwrap import dedent
 from typing import Iterator, NamedTuple
 
+from IPython.display import display
+from pandas import DataFrame
 import torch
+from torch import nn
 from torch.nn import functional as F
 import requests
 from rich.progress import Progress
 
-from llama_kit.model import Message, LlamaHead, LlamaModel, render_prompt, load_config, load_parameters, load_tokenizer, unpack_parameters
-from llama_kit.tools import executor
+from llama_kit.model import Message, LlamaHead, LlamaModel, ModelConfig, render_prompt, load_config, load_parameters, load_tokenizer, unpack_parameters
+from llama_kit.tools import executor, default_arg
 
 __all__ = [
     "OPTIONS",
@@ -26,14 +31,19 @@ __all__ = [
     "download_dataset",
     "load_dataset",
     "select_question",
+    "display_questions",
     "generate_prompt",
     "generate_answers",
-    "evaluate_model",
+    "MMULGenerator",
+    "evaluate_generator",
+    "filter_questions",
 ]
+
+logger = logging.getLogger(__name__)
 
 
 class Question(NamedTuple):
-    """Represents an MMLU question."""
+    """An MMLU question."""
 
     qid: int
 
@@ -60,7 +70,7 @@ OPTIONS = ("A", "B", "C", "D")
 
 
 class Answer(NamedTuple):
-    """Represents an answer to MMLU question."""
+    """An answer to MMLU question."""
 
     qid: int
 
@@ -75,6 +85,17 @@ class Answer(NamedTuple):
 
 Answers = Sequence[Answer]
 
+
+class Dataset(NamedTuple):
+    """MMLU dataset."""
+    
+    questions: Questions
+
+    examples: Questions
+
+    categories: Categories
+
+
 _mmlu_dataset_url = "https://people.eecs.berkeley.edu/~hendrycks/data.tar"
 
 
@@ -82,7 +103,7 @@ def download_dataset(output_path: Path):
     """Download MMLU dataset to output_path."""
     # Check if it exists already
     if output_path.exists():
-        print(f"Dataset {output_path.name} exists. Skipping.")  # noqa: T201
+        logger.info(f"Dataset {output_path.name} exists. Skipping download.")
         return
 
     work_dir = tempfile.TemporaryDirectory()
@@ -105,7 +126,7 @@ def download_dataset(output_path: Path):
         shutil.move(work_path / "data", output_path)
 
 
-def load_dataset(dataset_path: Path) -> tuple[Questions, Questions, Categories]:
+def load_dataset(dataset_path: Path) -> Dataset:
     """Load MMLU examples and questions."""
 
     def load_data_file(path: Path) -> Questions:
@@ -141,7 +162,41 @@ def load_dataset(dataset_path: Path) -> tuple[Questions, Questions, Categories]:
     examples = load_segment("dev")
     categories = {q.category for q in questions}
 
-    return questions, examples, categories
+    return Dataset(questions=questions, examples=examples, categories=categories)
+
+
+def filter_questions(
+    config: ModelConfig,
+    questions: Questions,
+    max_sequence_len: int,
+    n_shots: int,
+    examples: Questions,
+) -> Questions:
+    """Filter out questions that exceed max sequence length."""
+
+    results = []
+    
+    tokenizer = load_tokenizer(config)
+
+    for question in questions:
+        
+        # Generate prompt
+        messages = generate_prompt(question, n_shots=n_shots, examples=examples)
+        prompt = render_prompt(config, messages)
+        
+        # Split prompt into tokens
+        token_ids = tokenizer.encode(prompt, bos=True, eos=False)
+
+        if len(token_ids) > max_sequence_len:
+            logger.debug(f"Filtered out question {question.qid}: {len(token_ids)} > {max_sequence_len}")
+            continue
+
+        results.append(question)
+
+    before, after = len(questions), len(results)
+    logger.info(f"Filtered out {before - after} of {before} questions. {after} remaining.")
+    
+    return results
 
 
 def select_question(questions: Questions, *, qid: int | None = None, question: str | None = None) -> Question | None:
@@ -153,6 +208,18 @@ def select_question(questions: Questions, *, qid: int | None = None, question: s
         raise ValueError("Must specify either qid or question")
 
     return next((q for q in questions if q.question == question), None)
+
+
+def display_questions(questions: Questions, n: int | None = None):
+    """Render random sample of questions as a table."""
+
+    # Defaults
+    n = default_arg(n, 5)
+
+    # Randomly select sample
+    selected = questions if len(questions) <= n else sample(questions, n)
+    
+    display(DataFrame(selected))
 
 
 def generate_prompt(
@@ -230,85 +297,84 @@ def generate_prompt(
     return messages
 
 
-def generate_answers(
-    checkpoint: str,        
-    *,
-    questions: Questions,
-    n_shots: int, 
-    examples: Questions,
-) -> Iterator[Answer]:
-    """Generate answers to each question."""
-
-    # Configure models
-    config = load_config(checkpoint)
-    parameters = load_parameters(config, map_location=config.device)
-    model = LlamaModel(config)
-    head = LlamaHead(config)
-    tokenizer = load_tokenizer(config)
-
-    # Load model parameters
-    model.load_state_dict(unpack_parameters(parameters, ["model"]))
-    head.load_state_dict(unpack_parameters(parameters, ["head"]))
-
-    # Look up token ids for MMLU options A, B, C, D
-    mmlu_token_ids = {option: tokenizer.encode(option, bos=False, eos=False)[0] for option in OPTIONS}
-
-    # Generate answers to each question
-    for question in questions:
+class MMLUGenerator(nn.Module):
+    def __init__(self, config: ModelConfig):
+        super().__init__()
         
-        # Generate prompt
-        messages = generate_prompt(question, n_shots=n_shots, examples=examples)
-        prompt = render_prompt(config, messages)
+        self.config = config
+        self.model = LlamaModel(config)
+        self.head = LlamaHead(config)
+    
+    def __call__(
+        self,
+        questions: Questions,
+        *,
+        n_shots: int,
+        examples: Questions | None = None,
+    ) -> Iterator[Answer]:
         
-        # Split prompt into tokens
-        token_ids = torch.tensor(tokenizer.encode(prompt, bos=True, eos=False), device=config.device)
+        # Create tokenizer
+        tokenizer = load_tokenizer(self.config)
+    
+        # Look up token ids for MMLU options A, B, C, D
+        mmlu_token_ids = {option: tokenizer.encode(option, bos=False, eos=False)[0] for option in OPTIONS}
+    
+        # Generate answers to each question
+        for question in questions:
+            
+            # Generate prompt
+            messages = generate_prompt(question, n_shots=n_shots, examples=examples)
+            prompt = render_prompt(self.config, messages)
+            
+            # Split prompt into tokens
+            token_ids = torch.tensor(tokenizer.encode(prompt, bos=True, eos=False), device=self.config.device)
+    
+            # Transform token ids into semantic embeddings
+            embeddings = self.model(token_ids)
+    
+            # Project embeddings back to token space
+            logits = self.head(embeddings)
+            
+            # Extract logits for MMLU options
+            mmlu_logits = torch.tensor(
+                [logits[mmlu_token_ids[option]] for option in OPTIONS],
+                device=self.config.device,
+            )
+            
+            # Convert to scores (probability distribution over options)
+            scores = F.softmax(mmlu_logits, dim=-1)
+            
+            # Map options to scores
+            scores = {option: scores[i] for i, option in enumerate(OPTIONS)}
+            
+            # Convert scores back to floats
+            scores = {k: v.item() for k, v in scores.items()}
+            
+            # Calculate answer
+            actual = max(scores, key=scores.get)
+    
+            # Yield answer
+            yield Answer(
+                qid=question.qid,
+                expected=question.answer,
+                actual=actual,
+                scores=scores,
+                correct=(actual == question.answer),
+            )
 
-        # Transform token ids into semantic embeddings
-        embeddings = model(token_ids)
 
-        # Project embeddings back to token space
-        logits = head(embeddings)
-        
-        # Extract logits for MMLU options
-        mmlu_logits = torch.tensor(
-            [logits[mmlu_token_ids[option]] for option in OPTIONS],
-            device=config.device,
-        )
-        
-        # Convert to scores (probability distribution over options)
-        scores = F.softmax(mmlu_logits, dim=-1)
-        
-        # Map options to scores
-        scores = {option: scores[i] for i, option in enumerate(OPTIONS)}
-        
-        # Convert scores back to floats
-        scores = {k: v.item() for k, v in scores.items()}
-        
-        # Calculate answer
-        actual = max(scores, key=scores.get)
-
-        # Yield answer
-        yield Answer(
-            qid=question.qid,
-            expected=question.answer,
-            actual=actual,
-            scores=scores,
-            correct=(actual == question.answer),
-        )
-
-
-def evaluate_model(
-    checkpoint: str,
+def evaluate_generator(
+    generator: MMLUGenerator,
     *,
     questions: Questions,
     n_shots: int, 
     examples: Questions, 
 ) -> float:
     # Generate answers
-    answers = tuple(generate_answers(checkpoint, questions=questions, n_shots=n_shots, examples=examples))
+    answers = tuple(generator(questions, n_shots=n_shots, examples=examples))
 
     # Calculate score
     correct_answers = tuple(a for a in answers if a.correct)
-    score = len(correct_answers) / len(answers)
+    score = 100 * len(correct_answers) / len(answers)    
 
     return score
