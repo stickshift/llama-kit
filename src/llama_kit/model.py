@@ -25,6 +25,7 @@ __all__ = [
     "load_config",
     "load_parameters",
     "load_tokenizer",
+    "masked_attention_bias",
     "render_prompt",
     "rope_frequencies",
     "rope_rotate",
@@ -269,6 +270,30 @@ def rope_rotate(x, r_cos, r_sin):
     return (x * r_cos) + (rope_swap(x) * r_sin)
 
 
+def masked_attention_bias(config: ModelConfig, n: int) -> Tensor:
+    """Compute reusable masked attention bias term M.
+
+    Returns:
+        Tensor: (n, n) diagonal matrix w/ upper triangular elements set to -inf, 0 otherwise.
+    """
+    from torch import logical_not, ones, tril, zeros  # noqa: PLC0415
+
+    # Parameters
+    device = config.device
+    dtype = config.dtype
+
+    # Initialize m with zeros
+    m = zeros(n, n, device=device, dtype=dtype)
+
+    # Create boolean mask w/ main diagonal and below set to False
+    mask = logical_not(tril(ones(n, n, device=device, dtype=torch.bool)))
+
+    # Fill upper triangular region to -inf
+    m = m.masked_fill_(mask, float("-inf"))
+
+    return m
+
+
 class LlamaNorm(torch.nn.Module):
     """Normalizes embeddings using RMSNorm.
 
@@ -342,11 +367,7 @@ class LlamaAttention(nn.Module):
         )
 
     @override
-    def forward(self, x: Tensor, r_cos: Tensor, r_sin: Tensor) -> Tensor:
-        # Match input
-        device = x.device
-        dtype = x.dtype
-
+    def forward(self, x: Tensor, r_cos: Tensor, r_sin: Tensor, mask: Tensor) -> Tensor:
         # Save residuals
         residual = x
 
@@ -372,13 +393,8 @@ class LlamaAttention(nn.Module):
         q = rope_rotate(q, r_cos, r_sin)
         k = rope_rotate(k, r_cos, r_sin)
 
-        # Compute masked attention bias M
-        n = len(x)
-        mask = torch.ones(n, n, device=device, dtype=torch.bool).tril(diagonal=0)
-        m = torch.zeros(n, n, device=device, dtype=dtype).masked_fill_(mask.logical_not(), float("-inf"))
-
         # Compute attention for all heads in parallel
-        scores = q @ k.transpose(-2, -1) / np.sqrt(self.config.d_head) + m
+        scores = q @ k.transpose(-2, -1) / np.sqrt(self.config.d_head) + mask
         a = F.softmax(scores, dim=-1) @ v
 
         # Combine attention heads
@@ -478,9 +494,9 @@ class LlamaLayer(nn.Module):
         self.ffn = LlamaFFN(config)
 
     @override
-    def forward(self, x: Tensor, r_cos: Tensor, r_sin: Tensor) -> Tensor:
+    def forward(self, x: Tensor, r_cos: Tensor, r_sin: Tensor, mask: Tensor) -> Tensor:
         # Attention
-        x = self.attention(x, r_cos, r_sin)
+        x = self.attention(x, r_cos, r_sin, mask)
 
         # FFN
         x = self.ffn(x)
@@ -507,15 +523,26 @@ class LlamaModel(nn.Module):
 
     @override
     def forward(self, token_ids: Tensor) -> Tensor:
-        # Compute cos and sin rotation matrices once for entire sequence
-        r_cos, r_sin = rope_frequencies(self.config, len(token_ids))
+        # Precompute values shared across layers:
+        #
+        #   * RoPE rotation matrices
+        #   * Masked attention bias
+        #
+
+        n = len(token_ids)
+
+        # RoPE rotation matrices
+        r_cos, r_sin = rope_frequencies(self.config, n)
+
+        # Masked attention bias
+        mask = masked_attention_bias(self.config, n)
 
         # Map tokens to embeddings
         x = self.embeddings(token_ids)
 
         # Transform token embeddings to semantic embeddings
         for layer in self.layers:
-            x = layer(x, r_cos, r_sin)
+            x = layer(x, r_cos, r_sin, mask)
 
         return x
 
