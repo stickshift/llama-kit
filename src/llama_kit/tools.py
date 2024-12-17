@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 import subprocess
 from typing import Callable
 
@@ -5,9 +6,12 @@ import torch
 
 __all__ = [
     "default_arg",
+    "executor",
     "shell",
     "torch_device",
 ]
+
+executor = ThreadPoolExecutor()
 
 
 def default_arg[T](
