@@ -14,5 +14,5 @@ def mmlu_dataset_path(datasets_path: Path) -> Path:
     path = datasets_path / "mmlu"
 
     download_dataset(path)
-    
+
     return path

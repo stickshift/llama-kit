@@ -5,10 +5,10 @@ import pytest
 from pytest import Config
 
 __all__ = [
-    "workspace_env",
-    "workspace_path",
     "build_path",
     "datasets_path",
+    "workspace_env",
+    "workspace_path",
 ]
 
 

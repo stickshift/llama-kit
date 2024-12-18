@@ -1,12 +1,17 @@
 from pathlib import Path
-from textwrap import dedent
 
+from llama_kit.benchmarks.mmlu import (
+    OPTIONS,
+    MMLUGenerator,
+    evaluate_generator,
+    generate_prompt,
+    load_dataset,
+    select_question,
+)
 from llama_kit.model import load_config, load_parameters
-from llama_kit.benchmarks.mmlu import evaluate_generator, load_dataset, select_question, generate_prompt, OPTIONS, MMLUGenerator
 
 
 def test_load_dataset(mmlu_dataset_path: Path):
-
     #
     # Whens
     #
@@ -39,7 +44,7 @@ def test_load_dataset(mmlu_dataset_path: Path):
     # Thens
     #
 
-    # question should be 
+    # question should be
     assert question0.question == "Where is the sinoatrial node located?"
     #
     # Whens
@@ -57,7 +62,6 @@ def test_load_dataset(mmlu_dataset_path: Path):
 
 
 def test_prompt_zero_shot(mmlu_dataset_path: Path):
-    
     #
     # Givens
     #
@@ -87,7 +91,6 @@ def test_prompt_zero_shot(mmlu_dataset_path: Path):
 
 
 def test_generate_answers(mmlu_dataset_path: Path):
-    
     #
     # Givens
     #
@@ -97,7 +100,7 @@ def test_generate_answers(mmlu_dataset_path: Path):
 
     # I looked up question 7779
     question = select_question(dataset.questions, qid=7779)
-    
+
     # I initialized generator
     config = load_config("Llama3.2-3B-Instruct")
     generator = MMLUGenerator(config)
@@ -123,7 +126,6 @@ def test_generate_answers(mmlu_dataset_path: Path):
 
 
 def test_evaluate(mmlu_dataset_path: Path):
-        
     #
     # Givens
     #
@@ -133,7 +135,7 @@ def test_evaluate(mmlu_dataset_path: Path):
 
     # I looked up question 7779
     question = select_question(dataset.questions, qid=7779)
-    
+
     # I initialized generator
     config = load_config("Llama3.2-3B-Instruct")
     generator = MMLUGenerator(config)

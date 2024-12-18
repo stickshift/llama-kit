@@ -1,7 +1,5 @@
 from textwrap import dedent
 
-import torch
-
 from llama_kit.model import load_config, render_prompt
 
 
@@ -30,7 +28,7 @@ def test_render_prompt_pretrained():
     # Thens
     #
 
-    # prompt should be 
+    # prompt should be
     assert prompt == "alpha\n\nbeta\n\n"
 
 
@@ -59,15 +57,17 @@ def test_render_prompt_instruct():
     # Thens
     #
 
-    # prompt should be 
-    assert prompt == dedent(
-        """
-        <|start_header_id|>system<|end_header_id|>
-        
-        alpha<|eot_id|><|start_header_id|>user<|end_header_id|>
-        
-        beta<|eot_id|><|start_header_id|>assistant<|end_header_id|>
-        
-        """
-    ).lstrip()
-    
+    # prompt should be
+    assert (
+        prompt
+        == dedent(
+            """
+            <|start_header_id|>system<|end_header_id|>
+
+            alpha<|eot_id|><|start_header_id|>user<|end_header_id|>
+
+            beta<|eot_id|><|start_header_id|>assistant<|end_header_id|>
+
+            """
+        ).lstrip()
+    )

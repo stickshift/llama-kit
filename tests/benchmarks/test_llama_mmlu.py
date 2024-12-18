@@ -1,13 +1,16 @@
 from pathlib import Path
 from random import sample
 
-from llama_kit.model import load_config, load_parameters, load_tokenizer, render_prompt, unpack_parameters, LlamaHead, LlamaModel, ModelConfig
-from llama_kit.benchmarks.mmlu import load_dataset, evaluate_generator, MMLUGenerator
+from llama_kit.benchmarks.mmlu import MMLUGenerator, evaluate_generator, load_dataset
+from llama_kit.model import (
+    load_config,
+    load_parameters,
+)
 
 
 def test_323b_instruct(mmlu_dataset_path: Path):
     """Benchmarks Llama 3.2 3B Instruct on sample of MMLU dataset.
-    
+
     See https://github.com/meta-llama/llama-models/blob/main/models/llama3_2/MODEL_CARD.md for comparison.
     """
 
@@ -35,7 +38,7 @@ def test_323b_instruct(mmlu_dataset_path: Path):
 
     # I evaluate generator using 0-shot prompts
     score = evaluate_generator(generator, questions=questions, n_shots=0, examples=dataset.examples)
-    
+
     #
     # Thens
     #

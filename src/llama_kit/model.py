@@ -1,3 +1,4 @@
+from enum import Enum
 import json
 from pathlib import Path
 from typing import Iterator, Mapping, NamedTuple, Sequence, override
@@ -9,7 +10,6 @@ from torch import Tensor, nn
 from torch.nn import functional as F
 
 from .tools import default_arg, torch_device
-from enum import Enum
 
 __all__ = [
     "LlamaAttention",
@@ -690,10 +690,10 @@ def render_prompt(config: ModelConfig, messages: Sequence[Message]) -> str:
             prompt += f"<|start_header_id|>{message.role}<|end_header_id|>\n\n"
 
         prompt += message.content
-    
+
         if config.type == ModelType.PRETRAINED:
             prompt += "\n\n"
-    
+
         if config.type == ModelType.INSTRUCT:
             prompt += "<|eot_id|>"
 
