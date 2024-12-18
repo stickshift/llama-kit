@@ -1,3 +1,4 @@
+from enum import Enum
 import json
 from pathlib import Path
 from typing import Iterator, Mapping, NamedTuple, Sequence, override
@@ -39,10 +40,17 @@ __all__ = [
 # ------------------------------------------------------------------------------
 
 
+class ModelType(str, Enum):
+    PRETRAINED = "pretrained"
+    INSTRUCT = "instruct"
+
+
 class ModelConfig(NamedTuple):
     """Llama3 model config."""
 
     checkpoint_path: Path
+
+    type: ModelType
 
     vocab_size: int
 
@@ -86,6 +94,7 @@ def load_config(checkpoint_name: str, **kwargs) -> ModelConfig:
 
     data = {
         "checkpoint_path": checkpoint_path,
+        "type": ModelType.INSTRUCT if checkpoint_name.endswith("-Instruct") else ModelType.PRETRAINED,
         "vocab_size": hparams["vocab_size"],
         "d_model": hparams["dim"],
         "n_layers": hparams["n_layers"],
@@ -113,13 +122,13 @@ ModelParameters = Mapping[str, Tensor]
 """Maps parameter names to weights."""
 
 
-def load_parameters(config: ModelConfig, **kwargs) -> ModelParameters:
+def load_parameters(config: ModelConfig) -> ModelParameters:
     """Load model state from checkpoint."""
     # Load state from checkpoint
     checkpoint_params = torch.load(
         config.checkpoint_path / "consolidated.00.pth",
         weights_only=True,
-        **kwargs,
+        map_location=config.device,
     )
 
     # Remap Meta's parameter names
@@ -666,8 +675,8 @@ class Message(NamedTuple):
     content: str
 
 
-def render_prompt(messages: Sequence[Message]) -> str:
-    """Render messages with special instruct tokens."""
+def render_prompt(config: ModelConfig, messages: Sequence[Message]) -> str:
+    """Render messages."""
     prompt = ""
 
     for data in messages:
@@ -677,11 +686,19 @@ def render_prompt(messages: Sequence[Message]) -> str:
         if isinstance(message, dict):
             message = Message(**message)
 
-        prompt += f"<|start_header_id|>{message.role}<|end_header_id|>\n\n"
-        prompt += message.content
-        prompt += "<|eot_id|>"
+        if config.type == ModelType.INSTRUCT:
+            prompt += f"<|start_header_id|>{message.role}<|end_header_id|>\n\n"
 
-    prompt += "<|start_header_id|>assistant<|end_header_id|>\n\n"
+        prompt += message.content
+
+        if config.type == ModelType.PRETRAINED:
+            prompt += "\n\n"
+
+        if config.type == ModelType.INSTRUCT:
+            prompt += "<|eot_id|>"
+
+    if config.type == ModelType.INSTRUCT:
+        prompt += "<|start_header_id|>assistant<|end_header_id|>\n\n"
 
     return prompt
 
@@ -722,7 +739,7 @@ class LlamaGenerator(nn.Module):
 
         # Encode messages
         if not isinstance(prompt, str):
-            prompt = render_prompt(prompt)
+            prompt = render_prompt(self.config, prompt)
 
         # Tokenize
         token_ids = self.tokenizer.encode(prompt, bos=True, eos=False, allowed_special="all")

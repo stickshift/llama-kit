@@ -5,6 +5,8 @@ import pytest
 from pytest import Config
 
 __all__ = [
+    "build_path",
+    "datasets_path",
     "workspace_env",
     "workspace_path",
 ]
@@ -22,3 +24,13 @@ def workspace_env(workspace_path: Path):
         raise ValueError(f"Missing .env file in {workspace_path}")
 
     dotenv.load_dotenv(workspace_path / ".env")
+
+
+@pytest.fixture
+def build_path(workspace_path: Path) -> Path:
+    return workspace_path / ".build"
+
+
+@pytest.fixture
+def datasets_path(build_path: Path) -> Path:
+    return build_path / "datasets"

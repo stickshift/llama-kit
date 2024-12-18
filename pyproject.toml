@@ -15,7 +15,9 @@ dependencies = [
     "matplotlib>=3.9.2",
     "numpy>=2.2.0",
     "pandas>=2.2.3",
+    "rich>=13.9.4",
     "torch>=2.5.1",
+    "tqdm>=4.67.1",
 ]
 
 #-------------------------------------------------------------------------------
@@ -44,6 +46,7 @@ variable = "PY_VERSION"
 
 dev-dependencies = [
     "ipykernel>=6.29.5",
+    "ipywidgets>=8.1.5",
     "jupyterlab-myst>=2.4.2",
     "jupyterlab>=4.3.2",
     "matplotlib>=3.9.3",
