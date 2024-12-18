@@ -237,7 +237,7 @@ def generate_prompt(
     if n_shots > 0 and examples is None:
         raise ValueError("n_shots specified without examples")
 
-    selected_examples = None
+    selected_examples = []
     if n_shots > 0:
         # Select examples for category
         selected_examples = [e for e in examples if e.category == question.category]
@@ -245,54 +245,55 @@ def generate_prompt(
         # Deterministically select n_shots if specified
         selected_examples = selected_examples[:n_shots]
 
-    messages = (
+    messages = []
+
+    # System message
+    messages.append(
         Message(
             role="system",
             content=(
                 f"You are a student answering multiple choice questions on an exam. Each question "
-                f"has 4 options A, B, C, D. There will be {n_shots} example questions followed by "
-                f"a test question. Your job is to answer the test question."
+                f"has 4 options: A, B, C, D. There will be {n_shots} example questions followed by "
+                f"a test question. Your job is to answer the test question. Your answer MUST be one "
+                f"of {{A, B, C, D}}."
             )
-        ),
-        Message(
-            role="user",
-            content=(
-                f"# Instructions\n\n"
-                f"The following are multiple choice questions about {question.category}."
-            )
-        ),
+        )
     )
+    
+    content = ""
+    
+    # Header
+    content += f"# Instructions\n\n"
+    content += f"The following are multiple choice questions (with answers) about {question.category}.\n\n"
 
-    if selected_examples:
-        content = "# Example Questions\n\n"
-        for row in selected_examples:
-            content += (
-                f"Question: {row.question}\n"
-                f"\n"
-                f"Options:\n"
-                f"  A) {row.A}\n"
-                f"  B) {row.B}\n"
-                f"  C) {row.C}\n"
-                f"  D) {row.D}\n"
-                f"\n"
-                f"Answer: {row.answer}\n\n"
-            )
-        messages += (Message(role="user", content=content),)
+    # Examples
+    for i, row in enumerate(selected_examples):
+        content += (
+            f"# Example {i}\n\n"
+            f"{row.question}\n"
+            f"\n"
+            f"A) {row.A}\n"
+            f"B) {row.B}\n"
+            f"C) {row.C}\n"
+            f"D) {row.D}\n"
+            f"\n"
+            f"Answer: {row.answer}\n\n"
+        )
 
-    # Pose question
-    content = "# Test Question\n\n"
+    # Question
     content += (
-        f"Question: {question.question}\n"
+        f"# Question\n\n"
+        f"{question.question}\n"
         f"\n"
-        f"Options:\n"
-        f"  A) {question.A}\n"
-        f"  B) {question.B}\n"
-        f"  C) {question.C}\n"
-        f"  D) {question.D}\n"
+        f"A) {question.A}\n"
+        f"B) {question.B}\n"
+        f"C) {question.C}\n"
+        f"D) {question.D}\n"
         f"\n"
         f"Answer: "
     )
-    messages += (Message(role="user", content=content),)
+
+    messages.append(Message(role="user", content=content))
 
     return messages
 
@@ -302,6 +303,7 @@ class MMLUGenerator(nn.Module):
         super().__init__()
         
         self.config = config
+        self.tokenizer = load_tokenizer(self.config)
         self.model = LlamaModel(config)
         self.head = LlamaHead(config)
     
@@ -312,12 +314,9 @@ class MMLUGenerator(nn.Module):
         n_shots: int,
         examples: Questions | None = None,
     ) -> Iterator[Answer]:
-        
-        # Create tokenizer
-        tokenizer = load_tokenizer(self.config)
     
         # Look up token ids for MMLU options A, B, C, D
-        mmlu_token_ids = {option: tokenizer.encode(option, bos=False, eos=False)[0] for option in OPTIONS}
+        mmlu_token_ids = {option: self.tokenizer.encode(option, bos=False, eos=False)[0] for option in OPTIONS}
     
         # Generate answers to each question
         for question in questions:
@@ -327,7 +326,16 @@ class MMLUGenerator(nn.Module):
             prompt = render_prompt(self.config, messages)
             
             # Split prompt into tokens
-            token_ids = torch.tensor(tokenizer.encode(prompt, bos=True, eos=False), device=self.config.device)
+            tokenizer_opts = {
+                "bos": True,
+                "eos": False,
+                "allowed_special": "all",
+            }
+            token_ids = self.tokenizer.encode(prompt, **tokenizer_opts)
+            logger.debug(f"Split prompt into {len(token_ids)} token ids")
+
+            # Load token ids into tensor
+            token_ids = torch.tensor(token_ids, device=self.config.device, dtype=torch.int64)
     
             # Transform token ids into semantic embeddings
             embeddings = self.model(token_ids)
